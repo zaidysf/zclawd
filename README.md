@@ -79,7 +79,7 @@ sudo su - zclawd-user
 As the non-root user:
 
 ```bash
-# Install Node.js 18+ (via nvm)
+# Install Node.js 20+ (via nvm)
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
 source ~/.bashrc
 nvm install 22

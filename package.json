@@ -22,5 +22,8 @@
     "typescript": "^5.7.0",
     "@types/node": "^22.0.0"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "license": "MIT"
 }
