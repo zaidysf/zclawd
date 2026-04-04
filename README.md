@@ -318,6 +318,10 @@ If ZClawd saved you from the OpenClaw apocalypse, consider buying me a coffee:
 
 <a href="https://buymeacoffee.com/zaidysf" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" width="200" /></a>
 
+## Author
+
+Built by [Zaid Yasyaf](https://uncle-z.com) — [@zaidysf](https://github.com/zaidysf)
+
 ## License
 
 MIT
