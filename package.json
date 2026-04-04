@@ -1,0 +1,26 @@
+{
+  "name": "zclawd",
+  "version": "0.1.0",
+  "description": "Always-on AI assistant powered by Claude Code — open-source OpenClaw alternative",
+  "type": "module",
+  "bin": {
+    "zclawd": "./dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "setup": "tsx src/cli.ts setup",
+    "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "node-pty": "^1.0.0",
+    "tsx": "^4.19.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0"
+  },
+  "license": "MIT"
+}

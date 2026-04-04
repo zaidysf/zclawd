@@ -1,0 +1,28 @@
+node_modules/
+dist/
+*.log
+
+# Runtime state (user-specific)
+state.json
+.zclawd/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment / secrets
+.env
+.env.*
+
+# Claude Code local settings
+.claude/
+
+# Build artifacts
+*.tsbuildinfo
