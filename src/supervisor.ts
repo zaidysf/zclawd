@@ -1,6 +1,7 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { execSync } from "node:child_process";
 import { ZClawdConfig, getConfigPath } from "./config.js";
 import { State, loadState, saveState } from "./state.js";
 import { log } from "./logger.js";
@@ -31,6 +32,9 @@ export class Supervisor {
   start(): void {
     log("INFO", "ZClawd supervisor starting");
     log("INFO", `State: ${JSON.stringify(this.state)}`);
+
+    const isResume = !!this.state.sessionId;
+    this.notifyTelegram(isResume ? "🟢 ZClawd back online (resuming session)" : "🟢 ZClawd started");
 
     this.spawnClaude();
     this.startTimers();
@@ -82,7 +86,6 @@ export class Supervisor {
     let nvmBin = "";
     if (existsSync(nvmNodeDir)) {
       try {
-        const { readdirSync } = await import("node:fs");
         const versions = readdirSync(nvmNodeDir).sort().reverse();
         if (versions.length > 0) nvmBin = join(nvmNodeDir, versions[0], "bin");
       } catch {}
@@ -155,8 +158,35 @@ export class Supervisor {
           : this.config.restartDelayMs;
 
       log("INFO", `Restarting in ${delay}ms (restart #${this.state.restartCount})`);
+      this.notifyTelegram(`🔄 ZClawd restarting... (restart #${this.state.restartCount})`);
       setTimeout(() => this.spawnClaude(), delay);
     });
+  }
+
+  private notifyTelegram(text: string): void {
+    try {
+      const configPath = getConfigPath();
+      if (!existsSync(configPath)) return;
+      const raw = JSON.parse(readFileSync(configPath, "utf-8"));
+      const botToken = raw.telegram?.botToken;
+      if (!botToken) return;
+
+      // Find chat IDs from approved senders
+      const accessPath = join(homedir(), ".claude", "channels", "telegram", "access.json");
+      if (!existsSync(accessPath)) return;
+      const access = JSON.parse(readFileSync(accessPath, "utf-8"));
+      const chatIds: string[] = access.allowFrom || [];
+
+      for (const chatId of chatIds) {
+        try {
+          const body = JSON.stringify({ chat_id: chatId, text });
+          execSync(
+            `curl -s --max-time 10 -X POST "https://api.telegram.org/bot${botToken}/sendMessage" -H "Content-Type: application/json" -d '${body.replace(/'/g, "'\\''")}'`,
+            { stdio: "ignore" }
+          );
+        } catch {}
+      }
+    } catch {}
   }
 
   private pollSessionId(): void {
