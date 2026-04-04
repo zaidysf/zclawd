@@ -1202,60 +1202,81 @@ async function cmdMigrate(): Promise<void> {
       if (indexHost) {
         let upserted = 0;
 
-        // Upsert MEMORY.md
+        // Upsert MEMORY.md — chunked by ## sections
         if (existsSync(memoryMdPath)) {
           const content = readFileSync(memoryMdPath, "utf-8").trim();
           if (content.length > 10) {
-            const ok = await upsertToPinecone(pineconeKey, indexHost, {
-              id: "openclaw-memory-md",
-              content: content.substring(0, 4000),
-              type: "openclaw-import",
-              source: "MEMORY.md",
-            });
-            if (ok) { upserted++; console.log("  ✓ MEMORY.md → Pinecone"); }
+            const sections = content.split("\n## ");
+            for (let i = 0; i < sections.length; i++) {
+              const section = (i > 0 ? "## " : "") + sections[i];
+              if (section.trim().length < 20) continue;
+              const ok = await upsertToPinecone(pineconeKey, indexHost, {
+                id: `openclaw-memory-section-${i}`,
+                content: section.substring(0, 3800),
+                type: "openclaw-memory",
+                source: `MEMORY.md section ${i}`,
+              });
+              if (ok) upserted++;
+            }
+            console.log(`  ✓ MEMORY.md → Pinecone (${sections.length} sections)`);
           }
         }
 
-        // Upsert SOUL.md as personality reference
-        if (existsSync(soulPath)) {
-          const content = readFileSync(soulPath, "utf-8").trim();
-          const ok = await upsertToPinecone(pineconeKey, indexHost, {
-            id: "openclaw-soul",
-            content: content.substring(0, 4000),
-            type: "openclaw-import",
-            source: "SOUL.md",
-          });
-          if (ok) { upserted++; console.log("  ✓ SOUL.md → Pinecone"); }
+        // Upsert workspace files (SOUL.md, USER.md, TOOLS.md)
+        for (const [path, name] of [[soulPath, "SOUL.md"], [userPath, "USER.md"], [toolsPath, "TOOLS.md"]] as const) {
+          if (existsSync(path)) {
+            const content = readFileSync(path, "utf-8").trim();
+            if (content.length > 20) {
+              const ok = await upsertToPinecone(pineconeKey, indexHost, {
+                id: `openclaw-${name.toLowerCase().replace(".md", "")}`,
+                content: content.substring(0, 3800),
+                type: "openclaw-import",
+                source: name,
+              });
+              if (ok) { upserted++; console.log(`  ✓ ${name} → Pinecone`); }
+            }
+          }
         }
 
-        // Upsert USER.md
-        if (existsSync(userPath)) {
-          const content = readFileSync(userPath, "utf-8").trim();
-          const ok = await upsertToPinecone(pineconeKey, indexHost, {
-            id: "openclaw-user",
-            content: content.substring(0, 4000),
-            type: "openclaw-import",
-            source: "USER.md",
-          });
-          if (ok) { upserted++; console.log("  ✓ USER.md → Pinecone"); }
-        }
-
-        // Upsert daily memory files
+        // Upsert ALL memory files — daily logs, project docs, tasks
         if (existsSync(memoryDir)) {
-          let dailyCount = 0;
-          const files = readdirSync(memoryDir).filter((f) => f.endsWith(".md")).slice(-30); // last 30
-          for (const file of files) {
+          let fileCount = 0;
+          const allFiles = readdirSync(memoryDir).filter((f) => f.endsWith(".md") || f.endsWith(".sh"));
+          for (const file of allFiles) {
             const content = readFileSync(join(memoryDir, file), "utf-8").trim();
             if (content.length < 20) continue;
+            const baseName = file.replace(/\.(md|sh)$/, "");
+            const type = file.match(/^\d{4}-\d{2}-\d{2}/) ? "openclaw-daily"
+              : file.endsWith(".sh") ? "openclaw-script"
+              : "openclaw-project";
             const ok = await upsertToPinecone(pineconeKey, indexHost, {
-              id: `openclaw-memory-${file.replace(".md", "")}`,
-              content: content.substring(0, 4000),
-              type: "openclaw-import",
+              id: `openclaw-${type === "openclaw-daily" ? "daily" : "file"}-${baseName}`,
+              content: content.substring(0, 3800),
+              type,
               source: file,
             });
-            if (ok) { upserted++; dailyCount++; }
+            if (ok) { upserted++; fileCount++; }
           }
-          if (dailyCount > 0) console.log(`  ✓ ${dailyCount} daily memory files → Pinecone`);
+          console.log(`  ✓ ${fileCount} memory/project files → Pinecone`);
+        }
+
+        // Upsert scripts from scripts directory
+        const scriptsDir = join(workspaceDir, "scripts");
+        if (existsSync(scriptsDir)) {
+          let scriptCount = 0;
+          const scripts = readdirSync(scriptsDir).filter((f) => f.endsWith(".sh") || f.endsWith(".py"));
+          for (const file of scripts) {
+            const content = readFileSync(join(scriptsDir, file), "utf-8").trim();
+            if (content.length < 20) continue;
+            const ok = await upsertToPinecone(pineconeKey, indexHost, {
+              id: `openclaw-script-${file.replace(/\.\w+$/, "")}`,
+              content: content.substring(0, 3800),
+              type: "openclaw-script",
+              source: file,
+            });
+            if (ok) { upserted++; scriptCount++; }
+          }
+          if (scriptCount > 0) console.log(`  ✓ ${scriptCount} scripts → Pinecone`);
         }
 
         console.log(`  ✓ Total: ${upserted} records upserted to Pinecone`);
