@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, readd
 import { join, dirname } from "node:path";
 import { execSync, spawn } from "node:child_process";
 import { homedir } from "node:os";
+import { createInterface } from "node:readline";
 import { loadReminders, removeReminder, saveReminders } from "./reminders.js";
 import { loadConfig, getConfigPath, getDataDir, ZClawdConfig } from "./config.js";
 import { loadState } from "./state.js";
@@ -68,53 +69,48 @@ Service:
 `);
 }
 
-function cmdSetup(): void {
-  console.log("🔧 ZClawd Setup\n");
+function ask(question: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
 
-  // 1. Create data directory
+function setupBase(): void {
+  // Create data dir, config, workspace, skills, trust — silent core setup
   ensureDir(ZCLAWD_DIR);
-  console.log(`✓ Data directory: ${ZCLAWD_DIR}`);
 
-  // 2. Create default config if not exists
   const configPath = getConfigPath();
   if (!existsSync(configPath)) {
-    const defaultConfig: Partial<ZClawdConfig> = {
+    writeFileSync(configPath, JSON.stringify({
       workspace: join(homedir(), "zclawd-workspace"),
       heartbeatIntervalMs: 60 * 60 * 1000,
-    };
-    writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2));
-    console.log(`✓ Config created: ${configPath}`);
-  } else {
-    console.log(`✓ Config exists: ${configPath}`);
+    }, null, 2));
   }
 
-  // 3. Create workspace if not exists
   const config = loadConfig();
   ensureDir(config.workspace);
-  console.log(`✓ Workspace: ${config.workspace}`);
 
-  // 4. Install skills into Claude Code
+  // Install skills
   const claudeSkillsDir = join(homedir(), ".claude", "skills");
   ensureDir(claudeSkillsDir);
-
   if (existsSync(SKILLS_SOURCE)) {
     const skills = readdirSync(SKILLS_SOURCE).filter((f) => f.endsWith(".md"));
     for (const skill of skills) {
       copyFileSync(join(SKILLS_SOURCE, skill), join(claudeSkillsDir, skill));
-      console.log(`✓ Skill installed: ${skill}`);
     }
   }
 
-  // 5. Install CLAUDE.md template into workspace
+  // Install CLAUDE.md
   const claudeMdDest = join(config.workspace, "CLAUDE.md");
   if (existsSync(CLAUDE_MD_SOURCE) && !existsSync(claudeMdDest)) {
     copyFileSync(CLAUDE_MD_SOURCE, claudeMdDest);
-    console.log(`✓ CLAUDE.md template installed: ${claudeMdDest}`);
-  } else if (existsSync(claudeMdDest)) {
-    console.log(`✓ CLAUDE.md already exists: ${claudeMdDest}`);
   }
 
-  // 6. Trust workspace in Claude Code
+  // Trust workspace
   const claudeJsonPath = join(homedir(), ".claude.json");
   if (existsSync(claudeJsonPath)) {
     try {
@@ -135,32 +131,270 @@ function cmdSetup(): void {
           exampleFiles: [],
         };
         writeFileSync(claudeJsonPath, JSON.stringify(claudeJson, null, 2));
-        console.log(`✓ Workspace trusted in Claude Code`);
-      } else {
-        console.log(`✓ Workspace already trusted`);
       }
-    } catch {
-      console.log(`⚠ Could not update .claude.json — trust workspace manually`);
+    } catch {}
+  }
+}
+
+async function cmdSetup(): Promise<void> {
+  console.log(`
+            ********************
+          ****                ***
+         ****************   ***
+                    ***    ***
+                  ****   ***
+                 ***   ***********
+               ***   ******  ****
+             ***   ***  *  ***    ***
+           ***   ****  *******   ** **
+         +**   ******************* **
+         **           ********   +**
+         *************************
+
+  ZClawd Setup Wizard
+  `);
+
+  // Step 0: Prerequisites
+  console.log("Checking prerequisites...\n");
+
+  // Node version
+  const nodeVer = process.version;
+  const nodeMajor = parseInt(nodeVer.replace("v", "").split(".")[0]);
+  if (nodeMajor < 20) {
+    console.log(`  ✗ Node.js ${nodeVer} — need 20+`);
+    return;
+  }
+  console.log(`  ✓ Node.js ${nodeVer}`);
+
+  // Root check
+  if (process.getuid?.() === 0) {
+    console.log("  ✗ Running as root — Claude Code won't work with --dangerously-skip-permissions as root");
+    console.log("  Create a user: sudo useradd -m -s /bin/bash zclawd-user");
+    return;
+  }
+  console.log(`  ✓ User: ${process.env.USER}`);
+
+  // Bun
+  let bunOk = false;
+  try {
+    execSync("bun --version 2>/dev/null", { stdio: "pipe" });
+    bunOk = true;
+  } catch {
+    try {
+      execSync(`${join(homedir(), ".bun", "bin", "bun")} --version 2>/dev/null`, { stdio: "pipe" });
+      bunOk = true;
+    } catch {}
+  }
+  if (bunOk) {
+    console.log("  ✓ Bun installed");
+  } else {
+    console.log("  ⚠ Bun not found (required for Telegram)");
+    const installBun = await ask("  Install Bun now? (Y/n) ");
+    if (installBun.toLowerCase() !== "n") {
+      try {
+        execSync("curl -fsSL https://bun.sh/install | bash", { stdio: "inherit" });
+        console.log("  ✓ Bun installed");
+      } catch {
+        console.log("  ✗ Bun install failed. Install manually: curl -fsSL https://bun.sh/install | bash");
+      }
     }
   }
 
-  // 7. Check Claude Code is installed
+  console.log("");
+
+  // Step 1: Core setup
+  console.log("Step 1/7: Core setup...");
+  setupBase();
+  const config = loadConfig();
+  console.log(`  ✓ Config, workspace, skills, trust — all set\n`);
+
+  // Step 2: Check Claude Code
+  console.log("Step 2/7: Claude Code...");
   try {
     const version = execSync(`${config.claudeBin} --version 2>/dev/null`).toString().trim();
-    console.log(`✓ Claude Code found: ${version}`);
+    console.log(`  ✓ Found: ${version}`);
   } catch {
-    console.log(`✗ Claude Code not found at: ${config.claudeBin}`);
-    console.log(`  Install: npm install -g @anthropic-ai/claude-code`);
-    console.log(`  Or update claudeBin in ${configPath}`);
+    console.log(`  ✗ Not found at: ${config.claudeBin}`);
+    console.log(`  Install: npm install -g @anthropic-ai/claude-code@latest`);
     return;
   }
 
-  console.log("\n✅ Setup complete. Run 'zclawd start' to begin.");
-  console.log("\nOptional next steps:");
-  console.log("  zclawd auth          Authenticate Claude Code (runs claude login)");
-  console.log("  zclawd telegram      Configure Telegram bot token");
-  console.log("  zclawd pinecone      Configure Pinecone API key");
-  console.log("  zclawd install       Install as systemd service for auto-start");
+  // Check auth
+  const claudeJsonPath = join(homedir(), ".claude.json");
+  if (!existsSync(claudeJsonPath)) {
+    console.log(`  ⚠ Not authenticated`);
+    const doAuth = await ask("  Authenticate now? (Y/n) ");
+    if (doAuth.toLowerCase() !== "n") {
+      try {
+        execSync(`${config.claudeBin} login`, { stdio: "inherit" });
+        console.log("  ✓ Authenticated");
+      } catch {
+        console.log("  ✗ Authentication failed");
+        return;
+      }
+    }
+  } else {
+    console.log(`  ✓ Authenticated`);
+  }
+
+  // Step 3: Model
+  console.log("\nStep 3/7: Model...");
+  const raw = existsSync(getConfigPath()) ? JSON.parse(readFileSync(getConfigPath(), "utf-8")) : {};
+  if (!raw.model) {
+    console.log("  Available: claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5");
+    const model = await ask("  Which model? (default: claude-sonnet-4-6) ");
+    if (model) {
+      raw.model = model;
+      writeFileSync(getConfigPath(), JSON.stringify(raw, null, 2));
+    }
+    console.log(`  ✓ Model: ${model || "default"}`);
+  } else {
+    console.log(`  ✓ Model: ${raw.model}`);
+  }
+
+  // Step 4: Telegram
+  console.log("\nStep 4/7: Telegram (required)...");
+  if (raw.telegram?.botToken) {
+    console.log(`  ✓ Already configured`);
+    try {
+      const result = execSync(`curl -s "https://api.telegram.org/bot${raw.telegram.botToken}/getMe"`, { encoding: "utf-8" });
+      const data = JSON.parse(result);
+      if (data.ok) console.log(`  ✓ Bot: @${data.result.username}`);
+    } catch {}
+  } else {
+    console.log("  Get a token from @BotFather on Telegram.");
+    const token = await ask("  Bot token: ");
+    if (token) {
+      // Validate
+      try {
+        const result = execSync(`curl -s "https://api.telegram.org/bot${token}/getMe"`, { encoding: "utf-8" });
+        const data = JSON.parse(result);
+        if (data.ok) {
+          console.log(`  ✓ Bot verified: @${data.result.username}`);
+
+          // Save
+          raw.telegram = { botToken: token };
+          writeFileSync(getConfigPath(), JSON.stringify(raw, null, 2));
+
+          // Write .env
+          const telegramDir = join(homedir(), ".claude", "channels", "telegram");
+          ensureDir(telegramDir);
+          writeFileSync(join(telegramDir, ".env"), `TELEGRAM_BOT_TOKEN=${token}\n`, { mode: 0o600 });
+
+          // Enable plugin
+          const settingsPath = join(homedir(), ".claude", "settings.json");
+          let settings: Record<string, any> = {};
+          if (existsSync(settingsPath)) settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+          if (!settings.enabledPlugins) settings.enabledPlugins = {};
+          settings.enabledPlugins["telegram@claude-plugins-official"] = true;
+          writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+
+          // Clear webhooks
+          try { execSync(`curl -s "https://api.telegram.org/bot${token}/deleteWebhook"`, { stdio: "ignore" }); } catch {}
+
+          console.log("  ✓ Telegram configured");
+        } else {
+          console.log("  ✗ Invalid token");
+          return;
+        }
+      } catch {
+        console.log("  ⚠ Could not verify token");
+      }
+    } else {
+      console.log("  ✗ Telegram is required. Run 'zclawd telegram <token>' later.");
+    }
+  }
+
+  // Step 5: Pinecone
+  console.log("\nStep 5/7: Pinecone (optional, for long-term memory)...");
+  if (raw.pinecone?.apiKey) {
+    console.log(`  ✓ Already configured`);
+  } else {
+    const wantPinecone = await ask("  Set up Pinecone for long-term memory? (Y/n) ");
+    if (wantPinecone.toLowerCase() !== "n") {
+      const apiKey = await ask("  Pinecone API key: ");
+      if (apiKey) {
+        raw.pinecone = { apiKey };
+        writeFileSync(getConfigPath(), JSON.stringify(raw, null, 2));
+
+        // Enable plugin
+        const settingsPath = join(homedir(), ".claude", "settings.json");
+        let settings: Record<string, any> = {};
+        if (existsSync(settingsPath)) settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+        if (!settings.enabledPlugins) settings.enabledPlugins = {};
+        settings.enabledPlugins["pinecone@claude-plugins-official"] = true;
+        writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+
+        // Add to bashrc
+        const bashrc = join(homedir(), ".bashrc");
+        if (existsSync(bashrc) && !readFileSync(bashrc, "utf-8").includes("PINECONE_API_KEY")) {
+          appendFileSync(bashrc, `\n# Added by ZClawd\nexport PINECONE_API_KEY="${apiKey}"\n`);
+        }
+
+        // Create index
+        console.log("  Creating Pinecone index...");
+        const host = await ensurePineconeIndex(apiKey, "zclawd-memory");
+        if (host) {
+          console.log(`  ✓ Pinecone ready`);
+        }
+      }
+    } else {
+      console.log("  Skipped. Run 'zclawd pinecone <key>' later.");
+    }
+  }
+
+  // Step 6: OpenClaw migration
+  console.log("\nStep 6/7: OpenClaw migration...");
+  const openclawPath = join(homedir(), ".openclaw");
+  if (existsSync(openclawPath)) {
+    console.log(`  Found OpenClaw at ${openclawPath}`);
+    const doMigrate = await ask("  Import data from OpenClaw? (Y/n) ");
+    if (doMigrate.toLowerCase() !== "n") {
+      // Trigger migration (reuse existing function but pass args)
+      process.argv[3] = openclawPath;
+      await cmdMigrate();
+    }
+  } else {
+    console.log("  No OpenClaw installation found. Skipping.");
+  }
+
+  // Step 7: Pair Telegram
+  console.log("\nStep 7/7: Pair Telegram...");
+  const accessPath = join(homedir(), ".claude", "channels", "telegram", "access.json");
+  if (existsSync(accessPath)) {
+    try {
+      const access = JSON.parse(readFileSync(accessPath, "utf-8"));
+      if (access.allowFrom?.length > 0) {
+        console.log(`  ✓ Already paired (${access.allowFrom.length} user(s))`);
+      } else {
+        throw new Error("no users");
+      }
+    } catch {
+      console.log("  Send a message to your bot on Telegram first.");
+      const doPair = await ask("  Ready to pair? (Y/n) ");
+      if (doPair.toLowerCase() !== "n") {
+        process.argv[3] = "";
+        cmdPair();
+      }
+    }
+  } else if (raw.telegram?.botToken) {
+    console.log("  Send a message to your bot on Telegram first.");
+    const doPair = await ask("  Ready to pair? (Y/n) ");
+    if (doPair.toLowerCase() !== "n") {
+      process.argv[3] = "";
+      cmdPair();
+    }
+  } else {
+    console.log("  Skipped (no Telegram configured).");
+  }
+
+  // Done
+  console.log("\n✅ Setup complete!\n");
+  console.log("Next steps:");
+  console.log("  zclawd doctor       Verify everything");
+  console.log("  zclawd foreground   Test run (Ctrl+C to stop)");
+  console.log("  zclawd start        Start as background daemon");
+  console.log("  zclawd install      Auto-start on boot");
 }
 
 function preflight(): boolean {
@@ -1390,7 +1624,7 @@ const cmd = process.argv[2];
 
 switch (cmd) {
   case "setup":
-    cmdSetup();
+    cmdSetup().catch((e) => { console.error(e); process.exit(1); });
     break;
   case "start":
     cmdStart();
