@@ -907,32 +907,37 @@ function cmdModel(): void {
 }
 
 async function ensurePineconeIndex(apiKey: string, indexName: string): Promise<string | null> {
+  const API_VERSION = "2025-10";
+
   // Check if index exists
   try {
     const result = execSync(
-      `curl -s -H "Api-Key: ${apiKey}" "https://api.pinecone.io/indexes/${indexName}"`,
+      `curl -s -H "Api-Key: ${apiKey}" -H "X-Pinecone-Api-Version: ${API_VERSION}" "https://api.pinecone.io/indexes/${indexName}"`,
       { encoding: "utf-8" }
     );
     const data = JSON.parse(result);
     if (data.host) return data.host;
   } catch {}
 
-  // Index doesn't exist — create it
+  // Create integrated index with embedding model
   console.log(`  Creating Pinecone index '${indexName}'...`);
   try {
     const body = JSON.stringify({
       name: indexName,
-      dimension: 1024,
-      metric: "cosine",
-      spec: { serverless: { cloud: "aws", region: "us-east-1" } },
-      tags: { source: "zclawd" },
+      cloud: "aws",
+      region: "us-east-1",
+      embed: {
+        model: "multilingual-e5-large",
+        field_map: { text: "content" },
+      },
     });
-    execSync(
-      `curl -s -X POST "https://api.pinecone.io/indexes" ` +
+    const result = execSync(
+      `curl -s -X POST "https://api.pinecone.io/indexes/create-for-model" ` +
         `-H "Api-Key: ${apiKey}" ` +
         `-H "Content-Type: application/json" ` +
+        `-H "X-Pinecone-Api-Version: ${API_VERSION}" ` +
         `-d '${body}'`,
-      { encoding: "utf-8", stdio: "pipe" }
+      { encoding: "utf-8" }
     );
 
     // Wait for index to be ready (up to 60s)
@@ -944,7 +949,7 @@ async function ensurePineconeIndex(apiKey: string, indexName: string): Promise<s
           { encoding: "utf-8" }
         );
         const checkData = JSON.parse(check);
-        if (checkData.status?.ready || checkData.host) {
+        if (checkData.status?.ready && checkData.host) {
           console.log(`  ✓ Index '${indexName}' created and ready`);
           return checkData.host;
         }
@@ -965,25 +970,32 @@ async function upsertToPinecone(
   record: { id: string; content: string; type: string; source: string }
 ): Promise<boolean> {
   try {
-    const body = JSON.stringify({
-      records: [
-        {
-          _id: record.id,
-          content: record.content,
-          type: record.type,
-          source: record.source,
-          timestamp: new Date().toISOString(),
-          migrated_from: "openclaw",
-        },
-      ],
+    // NDJSON format for integrated index — one record per line
+    const ndjson = JSON.stringify({
+      _id: record.id,
+      content: record.content,
+      type: record.type,
+      source: record.source,
+      timestamp: new Date().toISOString(),
+      migrated_from: "openclaw",
     });
+
+    // Write to temp file to avoid shell escaping issues with content
+    const tmpFile = join(homedir(), ".zclawd", `upsert-${Date.now()}.ndjson`);
+    writeFileSync(tmpFile, ndjson);
+
     execSync(
       `curl -s -X POST "https://${host}/records/namespaces/default/upsert" ` +
         `-H "Api-Key: ${apiKey}" ` +
-        `-H "Content-Type: application/json" ` +
-        `-d '${body.replace(/'/g, "'\\''")}'`,
+        `-H "Content-Type: application/x-ndjson" ` +
+        `-H "X-Pinecone-Api-Version: 2025-10" ` +
+        `-d @${tmpFile}`,
       { encoding: "utf-8", stdio: "pipe" }
     );
+
+    // Clean up temp file
+    try { execSync(`rm -f ${tmpFile}`, { stdio: "ignore" }); } catch {}
+
     return true;
   } catch {
     return false;
