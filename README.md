@@ -20,6 +20,51 @@
 
 ---
 
+```
+$ zclawd setup
+
+  ZClawd Setup Wizard
+
+Checking prerequisites...
+  ✓ Node.js v24.11.0
+  ✓ User: zaid
+  ✓ Bun installed
+
+Step 1/7: Core setup...
+  ✓ Config, workspace, skills, trust — all set
+
+Step 2/7: Claude Code...
+  ✓ Found: 2.1.92 (Claude Code)
+  ✓ Authenticated
+
+Step 3/7: Model...
+  Which model? claude-opus-4-6
+  ✓ Model: claude-opus-4-6
+
+Step 4/7: Telegram (required)...
+  Bot token: 8597886***
+  ✓ Bot verified: @uncle_zarvis_bot
+  ✓ Telegram configured
+
+Step 5/7: Pinecone (optional)...
+  ✓ Index 'zclawd-memory' created and ready
+
+Step 6/7: OpenClaw migration...
+  ✓ Found OpenClaw at ~/.openclaw
+  ✓ Bot token migrated
+  ✓ MEMORY.md → Pinecone (15 sections)
+  ✓ 60 daily memory files → Pinecone
+  ✓ 3 scripts → Pinecone
+
+Step 7/7: Pair Telegram...
+  ✓ Already paired (1 user)
+
+✅ Setup complete!
+
+$ zclawd start
+ZClawd started (PID: 2243785)
+```
+
 On April 4, 2026, Anthropic [cut off Claude subscriptions from working with OpenClaw and third-party agents](https://venturebeat.com/technology/anthropic-cuts-off-the-ability-to-use-claude-subscriptions-with-openclaw-and). If you were an OpenClaw user who relied on Claude, you were left without your always-on assistant overnight.
 
 ZClawd is a lightweight, open-source alternative that works **natively with Claude Code** — Anthropic's own tool. No third-party wrappers, no subscription conflicts, no API cost surprises. Just Claude Code, kept alive and made smarter.
@@ -37,6 +82,9 @@ ZClawd is a lightweight, open-source alternative that works **natively with Clau
 - [x] Doctor command (auto-diagnose + fix)
 - [x] Systemd service for auto-start on boot
 - [x] Reminders / scheduled prompts (cron-based)
+- [x] Sidecar skill (Claude can restart itself, check status, manage reminders)
+- [x] Telegram notifications on start/restart/boot
+- [x] Interactive setup wizard (one command from zero to running)
 - [x] 29 unit tests passing
 
 **Known limitations:**
@@ -71,80 +119,55 @@ ZClawd is a thin supervisor that turns Claude Code into an always-on personal as
 - **Custom skills** — `/heartbeat`, `/memory-save`, `/memory-load`, `/status`, `/remind`
 - **Systemd service** — auto-start on boot, runs forever
 
-## 1. Server Prerequisites
-
-Run as root or with sudo:
+## 1. Prerequisites
 
 ```bash
-# Debian/Ubuntu
+# Debian/Ubuntu (as root)
 sudo apt update && sudo apt install -y build-essential python3 unzip curl git
 
-# Create a non-root user (if you don't have one)
-sudo useradd -m -s /bin/bash zclawd-user
-sudo su - zclawd-user
-```
+# Create a non-root user if needed (Claude Code won't run as root)
+sudo useradd -m -s /bin/bash zclawd-user && sudo su - zclawd-user
 
-As the non-root user:
-
-```bash
-# Install Node.js 20+ (via nvm)
+# Install Node.js 20+ (as your user)
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
-source ~/.bashrc
-nvm install 22
-
-# Install Bun (required by Telegram plugin)
-curl -fsSL https://bun.sh/install | bash
-source ~/.bashrc
+source ~/.bashrc && nvm install 22
 
 # Install Claude Code
 npm install -g @anthropic-ai/claude-code@latest
 ```
 
-> **Important:** Claude Code blocks `--dangerously-skip-permissions` as root. You must run ZClawd as a non-root user.
+> Bun is also required but `zclawd setup` will auto-install it if missing.
 
 ## 2. Install ZClawd
 
 ```bash
 git clone https://github.com/zaidysf/zclawd.git
 cd zclawd
-npm install
-npm run build
-npm link
+npm install && npm run build && npm link
 ```
 
-## 3. Setup
+## 3. Setup (interactive wizard)
 
 ```bash
-zclawd setup                     # Config, skills, workspace, trust
-zclawd auth                      # Authenticate Claude Code
-zclawd model claude-opus-4-6     # Choose model
-zclawd telegram <bot-token>      # Configure Telegram (required)
-zclawd pinecone <api-key>        # Configure Pinecone memory (optional)
+zclawd setup
 ```
 
-## 4. Pair Telegram
+The wizard handles everything in one command:
+
+1. **Prerequisites** — checks Node 20+, non-root, Bun (auto-installs if missing)
+2. **Claude Code** — detects installation, prompts authentication
+3. **Model** — choose your Claude model
+4. **Telegram** — paste your bot token, validates, configures plugin
+5. **Pinecone** — optional long-term memory, creates integrated index
+6. **OpenClaw migration** — auto-detects `~/.openclaw`, imports config, personality, and all memories to Pinecone
+7. **Telegram pairing** — pairs your Telegram account
+
+After the wizard, verify and start:
 
 ```bash
-# Send a message to your bot on Telegram, then:
-zclawd pair
-
-# Or directly with your Telegram user ID:
-zclawd pair <your-telegram-user-id>
-```
-
-## 5. Verify
-
-```bash
-zclawd doctor     # Check everything, auto-fix issues
-zclawd foreground # Run in foreground to verify (Ctrl+C to stop)
-```
-
-## 6. Start
-
-```bash
-zclawd start      # Background daemon
-zclawd status     # Verify it's running
-zclawd logs       # Check output
+zclawd doctor       # Verify everything (auto-fixes issues)
+zclawd foreground   # Test run (Ctrl+C to stop)
+zclawd start        # Start as background daemon
 ```
 
 ### Auto-start on boot
@@ -240,6 +263,8 @@ Service:
 | `/memory-save` | Save session context to Pinecone. |
 | `/memory-load` | Pull recent context from Pinecone after restart. |
 | `/status` | Report session health and memory stats. |
+| `/remind` | Set, list, or delete scheduled reminders (cron-based). |
+| `/sidecar` | Interact with ZClawd — restart, check status, manage reminders from inside the session. |
 | `/remind` | Set, list, or delete scheduled reminders. |
 
 ## Configuration

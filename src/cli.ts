@@ -937,7 +937,7 @@ function cmdDoctor(): void {
 
   // 8. Skills installed
   const skillsDir = join(homedir(), ".claude", "skills");
-  const expectedSkills = ["heartbeat.md", "memory-save.md", "memory-load.md", "status.md"];
+  const expectedSkills = ["heartbeat.md", "memory-save.md", "memory-load.md", "status.md", "remind.md", "sidecar.md"];
   const missingSkills = expectedSkills.filter((s) => !existsSync(join(skillsDir, s)));
   if (missingSkills.length === 0) {
     console.log(`✓ Skills: all ${expectedSkills.length} installed`);
