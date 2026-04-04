@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { ZClawdConfig, getConfigPath } from "./config.js";
 import { State, loadState, saveState } from "./state.js";
 import { log } from "./logger.js";
+import { getDueReminders, markReminderRun } from "./reminders.js";
 
 // node-pty types
 interface IPty {
@@ -21,6 +22,7 @@ export class Supervisor {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private healthCheckTimer: ReturnType<typeof setInterval> | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private reminderTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(private config: ZClawdConfig) {
     this.state = loadState();
@@ -207,6 +209,19 @@ export class Supervisor {
     saveState(this.state);
   }
 
+  private checkReminders(): void {
+    try {
+      const due = getDueReminders();
+      for (const reminder of due) {
+        log("INFO", `Reminder due: [${reminder.id}] ${reminder.prompt.substring(0, 50)}`);
+        this.sendMessage(reminder.prompt);
+        markReminderRun(reminder.id);
+      }
+    } catch (err) {
+      // Don't crash the supervisor on reminder errors
+    }
+  }
+
   private startTimers(): void {
     this.heartbeatTimer = setInterval(
       () => this.sendHeartbeat(),
@@ -219,6 +234,8 @@ export class Supervisor {
         }
       }
     }, this.config.healthCheckIntervalMs);
+    // Check reminders every 60 seconds
+    this.reminderTimer = setInterval(() => this.checkReminders(), 60_000);
   }
 
   private shutdown(signal: string): void {
@@ -228,6 +245,7 @@ export class Supervisor {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     if (this.healthCheckTimer) clearInterval(this.healthCheckTimer);
     if (this.pollTimer) clearInterval(this.pollTimer);
+    if (this.reminderTimer) clearInterval(this.reminderTimer);
 
     if (this.pty) {
       this.pty.kill("SIGTERM");

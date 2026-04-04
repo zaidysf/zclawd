@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, readd
 import { join, dirname } from "node:path";
 import { execSync, spawn } from "node:child_process";
 import { homedir } from "node:os";
+import { loadReminders, removeReminder, saveReminders } from "./reminders.js";
 import { loadConfig, getConfigPath, getDataDir, ZClawdConfig } from "./config.js";
 import { loadState } from "./state.js";
 
@@ -51,6 +52,11 @@ Configuration:
   pinecone    Configure Pinecone API key (zclawd pinecone <api-key>)
   pair        Open interactive session to pair your Telegram account
   doctor      Check everything: node, bun, claude, auth, telegram, plugins
+
+Reminders:
+  reminders   List all reminders
+  reminders rm <id>  Remove a reminder
+  reminders clear    Remove all reminders
 
 Migration:
   migrate     Import from OpenClaw (zclawd migrate [path-to-openclaw-dir])
@@ -880,6 +886,46 @@ function cmdPinecone(): void {
   });
 }
 
+function cmdReminders(): void {
+  const sub = process.argv[3];
+  const reminders = loadReminders();
+
+  if (sub === "rm" || sub === "delete" || sub === "remove") {
+    const id = process.argv[4];
+    if (!id) {
+      console.log("Usage: zclawd reminders rm <id>");
+      return;
+    }
+    if (removeReminder(id)) {
+      console.log(`✓ Reminder ${id} removed.`);
+    } else {
+      console.log(`✗ Reminder ${id} not found.`);
+    }
+    return;
+  }
+
+  if (sub === "clear") {
+    saveReminders([]);
+    console.log("✓ All reminders cleared.");
+    return;
+  }
+
+  // Default: list
+  if (reminders.length === 0) {
+    console.log("No reminders set.");
+    console.log("\nSet reminders via Telegram: tell your bot 'remind me every morning at 8am to ...'");
+    return;
+  }
+
+  console.log("Reminders:\n");
+  for (const r of reminders) {
+    const lastRun = r.lastRun ? new Date(r.lastRun).toLocaleString() : "never";
+    console.log(`  [${r.id}] ${r.schedule}`);
+    console.log(`    ${r.prompt.substring(0, 80)}`);
+    console.log(`    Last run: ${lastRun}\n`);
+  }
+}
+
 function cmdModel(): void {
   const model = process.argv[3];
   const available = [
@@ -1374,6 +1420,10 @@ switch (cmd) {
     break;
   case "doctor":
     cmdDoctor();
+    break;
+  case "reminders":
+  case "reminder":
+    cmdReminders();
     break;
   case "migrate":
   case "import":
