@@ -10,6 +10,14 @@
   <em>Early release — functional and tested, but expect rough edges. PRs welcome.</em>
 </p>
 
+<p align="center">
+  <a href="https://github.com/zaidysf/zclawd/actions"><img src="https://github.com/zaidysf/zclawd/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/zaidysf/zclawd/releases"><img src="https://img.shields.io/github/v/release/zaidysf/zclawd?include_prereleases" alt="Release" /></a>
+  <a href="https://github.com/zaidysf/zclawd/blob/main/LICENSE"><img src="https://img.shields.io/github/license/zaidysf/zclawd" alt="License" /></a>
+  <a href="https://github.com/zaidysf/zclawd/stargazers"><img src="https://img.shields.io/github/stars/zaidysf/zclawd" alt="Stars" /></a>
+  <a href="https://buymeacoffee.com/zaidysf"><img src="https://img.shields.io/badge/buy%20me%20a%20coffee-donate-yellow" alt="Buy Me A Coffee" /></a>
+</p>
+
 ---
 
 On April 4, 2026, Anthropic [cut off Claude subscriptions from working with OpenClaw and third-party agents](https://venturebeat.com/technology/anthropic-cuts-off-the-ability-to-use-claude-subscriptions-with-openclaw-and). If you were an OpenClaw user who relied on Claude, you were left without your always-on assistant overnight.
