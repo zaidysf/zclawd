@@ -1,37 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
-// Test cron matching logic directly
-function fieldMatches(expr, value) {
-  if (expr === "*") return true;
-  if (expr.startsWith("*/")) {
-    const step = parseInt(expr.slice(2));
-    return !isNaN(step) && step > 0 && value % step === 0;
-  }
-  const parts = expr.split(",");
-  for (const part of parts) {
-    if (part.includes("-")) {
-      const [start, end] = part.split("-").map(Number);
-      if (value >= start && value <= end) return true;
-    } else {
-      if (parseInt(part) === value) return true;
-    }
-  }
-  return false;
-}
-
-function cronMatches(cron, date) {
-  const parts = cron.trim().split(/\s+/);
-  if (parts.length !== 5) return false;
-  const [minExpr, hourExpr, domExpr, monExpr, dowExpr] = parts;
-  return (
-    fieldMatches(minExpr, date.getMinutes()) &&
-    fieldMatches(hourExpr, date.getHours()) &&
-    fieldMatches(domExpr, date.getDate()) &&
-    fieldMatches(monExpr, date.getMonth() + 1) &&
-    fieldMatches(dowExpr, date.getDay())
-  );
-}
+const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const { cronMatches, fieldMatches } = await import(join(projectRoot, "dist", "reminders.js"));
 
 describe("Reminders", () => {
   describe("cron field matching", () => {

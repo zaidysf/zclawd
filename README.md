@@ -265,7 +265,6 @@ Service:
 | `/status` | Report session health and memory stats. |
 | `/remind` | Set, list, or delete scheduled reminders (cron-based). |
 | `/sidecar` | Interact with ZClawd — restart, check status, manage reminders from inside the session. |
-| `/remind` | Set, list, or delete scheduled reminders. |
 
 ## Configuration
 

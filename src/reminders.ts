@@ -80,7 +80,7 @@ export function cronMatches(cron: string, date: Date): boolean {
   );
 }
 
-function fieldMatches(expr: string, value: number): boolean {
+export function fieldMatches(expr: string, value: number): boolean {
   if (expr === "*") return true;
 
   // Handle */n (step)

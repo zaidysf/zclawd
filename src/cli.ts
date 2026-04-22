@@ -4,7 +4,7 @@ import { join, dirname } from "node:path";
 import { execSync, spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline";
-import { loadReminders, removeReminder, saveReminders } from "./reminders.js";
+import { addReminder, loadReminders, removeReminder, saveReminders } from "./reminders.js";
 import { loadConfig, getConfigPath, getDataDir, ZClawdConfig } from "./config.js";
 import { loadState } from "./state.js";
 
@@ -55,9 +55,10 @@ Configuration:
   doctor      Check everything: node, bun, claude, auth, telegram, plugins
 
 Reminders:
-  reminders   List all reminders
-  reminders rm <id>  Remove a reminder
-  reminders clear    Remove all reminders
+  reminders                              List all reminders
+  reminders add "<cron>" <chatId> <...>  Add a reminder
+  reminders rm <id>                      Remove a reminder
+  reminders clear                        Remove all reminders
 
 Migration:
   migrate     Import from OpenClaw (zclawd migrate [path-to-openclaw-dir])
@@ -374,7 +375,7 @@ async function cmdSetup(): Promise<void> {
       const doPair = await ask("  Ready to pair? (Y/n) ");
       if (doPair.toLowerCase() !== "n") {
         process.argv[3] = "";
-        cmdPair();
+        await cmdPair();
       }
     }
   } else if (raw.telegram?.botToken) {
@@ -382,7 +383,7 @@ async function cmdSetup(): Promise<void> {
     const doPair = await ask("  Ready to pair? (Y/n) ");
     if (doPair.toLowerCase() !== "n") {
       process.argv[3] = "";
-      cmdPair();
+      await cmdPair();
     }
   } else {
     console.log("  Skipped (no Telegram configured).");
@@ -471,7 +472,7 @@ function killExisting(): void {
   }
   // Also kill any stray supervisor processes (exclude our own PID)
   try {
-    execSync(`pgrep -f "node.*zclawd.*dist/index.js" | grep -v ${process.pid} | xargs -r kill 2>/dev/null`, { stdio: "ignore" });
+    execSync(`pgrep -f "node.*zclawd.*dist/index.js" | awk -v me=${process.pid} '$1 != me' | xargs -r kill 2>/dev/null`, { stdio: "ignore" });
   } catch {}
 }
 
@@ -605,15 +606,19 @@ function cmdInstall(): void {
     if (nodePath && !pathDirs.includes(nodePath)) pathDirs.unshift(nodePath);
   } catch {}
 
-  const envLines = [
-    `Environment=NODE_ENV=production`,
-    `Environment=HOME=${home}`,
-    `Environment=PATH=${pathDirs.join(":")}`,
+  // Write sensitive env to a chmod 600 file; systemd reads it via EnvironmentFile.
+  // Keeps PINECONE_API_KEY out of the world-readable unit file.
+  const envFilePath = join(home, ".zclawd", "env");
+  ensureDir(dirname(envFilePath));
+  const envFileLines = [
+    `NODE_ENV=production`,
+    `HOME=${home}`,
+    `PATH=${pathDirs.join(":")}`,
   ];
-
   if (raw.pinecone?.apiKey) {
-    envLines.push(`Environment=PINECONE_API_KEY=${raw.pinecone.apiKey}`);
+    envFileLines.push(`PINECONE_API_KEY=${raw.pinecone.apiKey}`);
   }
+  writeFileSync(envFilePath, envFileLines.join("\n") + "\n", { mode: 0o600 });
 
   const service = `[Unit]
 Description=ZClawd — Always-on Claude Code assistant
@@ -630,7 +635,7 @@ Restart=always
 RestartSec=10
 StartLimitIntervalSec=300
 StartLimitBurst=10
-${envLines.join("\n")}
+EnvironmentFile=${envFilePath}
 
 [Install]
 WantedBy=multi-user.target
@@ -727,7 +732,7 @@ function cmdTelegram(): void {
   console.log("\nNext step: run 'zclawd pair' to pair your Telegram account.");
 }
 
-function cmdPair(): void {
+async function cmdPair(): Promise<void> {
   const senderId = process.argv[3];
   const raw = existsSync(getConfigPath()) ? JSON.parse(readFileSync(getConfigPath(), "utf-8")) : {};
 
@@ -771,7 +776,7 @@ function cmdPair(): void {
   console.log("Step 2: Press Enter here when you've sent it.\n");
 
   // Wait for user
-  try { execSync("read -p 'Press Enter to continue...'", { stdio: "inherit" }); } catch {}
+  await ask("Press Enter to continue...");
 
   try {
     const result = execSync(`curl -s "https://api.telegram.org/bot${token}/getUpdates?limit=5"`, { encoding: "utf-8" });
@@ -1124,6 +1129,25 @@ function cmdReminders(): void {
   const sub = process.argv[3];
   const reminders = loadReminders();
 
+  if (sub === "add") {
+    const cron = process.argv[4];
+    const chatId = process.argv[5];
+    const prompt = process.argv.slice(6).join(" ");
+    if (!cron || !chatId || !prompt) {
+      console.log(`Usage: zclawd reminders add "<cron>" <chatId> <prompt...>`);
+      console.log(`Example: zclawd reminders add "0 8 * * *" 1049692111 Summarize emails and send to Telegram chat 1049692111`);
+      return;
+    }
+    const parts = cron.trim().split(/\s+/);
+    if (parts.length !== 5) {
+      console.log("✗ Invalid cron expression — expected 5 fields (minute hour dom mon dow)");
+      return;
+    }
+    const r = addReminder({ schedule: cron, prompt, chatId });
+    console.log(`✓ Reminder added: [${r.id}] ${r.schedule} — ${r.prompt.substring(0, 60)}`);
+    return;
+  }
+
   if (sub === "rm" || sub === "delete" || sub === "remove") {
     const id = process.argv[4];
     if (!id) {
@@ -1148,6 +1172,7 @@ function cmdReminders(): void {
   if (reminders.length === 0) {
     console.log("No reminders set.");
     console.log("\nSet reminders via Telegram: tell your bot 'remind me every morning at 8am to ...'");
+    console.log("Or from CLI: zclawd reminders add \"<cron>\" <chatId> <prompt...>");
     return;
   }
 
@@ -1577,7 +1602,7 @@ function cmdExport(): void {
   const skillsDir = join(homedir(), ".claude", "skills");
   const exportSkills = join(exportDir, "skills");
   ensureDir(exportSkills);
-  for (const skill of ["heartbeat.md", "memory-save.md", "memory-load.md", "status.md"]) {
+  for (const skill of ["heartbeat.md", "memory-save.md", "memory-load.md", "status.md", "remind.md", "sidecar.md"]) {
     const src = join(skillsDir, skill);
     if (existsSync(src)) {
       copyFileSync(src, join(exportSkills, skill));
@@ -1671,7 +1696,7 @@ switch (cmd) {
     cmdModel();
     break;
   case "pair":
-    cmdPair();
+    cmdPair().catch((e) => { console.error(e); process.exit(1); });
     break;
   case "doctor":
     cmdDoctor();
