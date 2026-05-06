@@ -15,7 +15,7 @@
   <a href="https://github.com/zaidysf/zclawd/releases"><img src="https://img.shields.io/github/v/release/zaidysf/zclawd?include_prereleases" alt="Release" /></a>
   <a href="https://github.com/zaidysf/zclawd/blob/main/LICENSE"><img src="https://img.shields.io/github/license/zaidysf/zclawd" alt="License" /></a>
   <a href="https://github.com/zaidysf/zclawd/stargazers"><img src="https://img.shields.io/github/stars/zaidysf/zclawd" alt="Stars" /></a>
-  <a href="https://buymeacoffee.com/zaidysf"><img src="https://img.shields.io/badge/buy%20me%20a%20coffee-donate-yellow" alt="Buy Me A Coffee" /></a>
+  <a href="https://paypal.me/unclezstudio"><img src="https://img.shields.io/badge/paypal-donate-blue" alt="Donate via PayPal" /></a>
 </p>
 
 ---
@@ -346,9 +346,11 @@ This project is **not affiliated with, endorsed by, or associated with Anthropic
 
 ## Support the Project
 
-If ZClawd saved you from the OpenClaw apocalypse, consider buying me a coffee:
+If ZClawd saved you from the OpenClaw apocalypse, consider sending a tip:
 
-<a href="https://buymeacoffee.com/zaidysf" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" width="200" /></a>
+<a href="https://paypal.me/unclezstudio" target="_blank"><img src="https://img.shields.io/badge/paypal-donate-blue?style=for-the-badge&logo=paypal" alt="Donate via PayPal" /></a>
+
+paypal.me/unclezstudio
 
 ## Author
 
